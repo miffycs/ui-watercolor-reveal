@@ -1,0 +1,27 @@
+{
+    "name": "ui-watercolor-reveal",
+    "version": "1.0.0",
+    "description": "WebGL Watercolor Reveal Effect with Three.js",
+    "main": "main.js",
+    "type": "module",
+    "scripts": {
+        "dev": "npx vite",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "keywords": [
+        "webgl",
+        "threejs",
+        "shader",
+        "watercolor",
+        "canvas"
+    ],
+    "author": "miffy@miffy.io",
+    "license": "MIT",
+    "devDependencies": {
+        "vite": "^5.0.0"
+    },
+    "dependencies": {
+        "three": "^0.160.0"
+    }
+}
