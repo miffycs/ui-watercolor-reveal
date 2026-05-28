@@ -1,27 +1,35 @@
 {
-    "name": "ui-watercolor-reveal",
-    "version": "1.0.0",
-    "description": "WebGL Watercolor Reveal Effect with Three.js",
-    "main": "main.js",
-    "type": "module",
-    "scripts": {
-        "dev": "npx vite",
-        "build": "vite build",
-        "preview": "vite preview"
-    },
-    "keywords": [
-        "webgl",
-        "threejs",
-        "shader",
-        "watercolor",
-        "canvas"
-    ],
-    "author": "miffy@miffy.io",
-    "license": "MIT",
-    "devDependencies": {
-        "vite": "^5.0.0"
-    },
-    "dependencies": {
-        "three": "^0.160.0"
-    }
+  "name": "ui-watercolor-reveal",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WebGL Watercolor Reveal Effect with React Three Fiber",
+  "type": "module",
+  "author": "miffy@miffy.io",
+  "license": "MIT",
+  "keywords": [
+    "webgl",
+    "threejs",
+    "react-three-fiber",
+    "glsl",
+    "shader",
+    "watercolor",
+    "fbo",
+    "ping-pong"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.117.0",
+    "@react-three/fiber": "^8.17.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0"
+  }
 }
