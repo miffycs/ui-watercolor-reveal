@@ -7,17 +7,13 @@ Each stroke lays down paint with naturally irregular fluid edges, and the
 "water" keeps bleeding outward for ~3 seconds *after* the cursor stops —
 exactly like watercolor settling into paper.
 
-**The result (this repo):** [demo recording](./Screen%20Recording%202026-05-28%20at%203.23.23%20AM.mov)
-
-**The reference** we were recreating (the original Lusion effect, used as
-the source material for prompting the LLM that started this project):
+**The reference** we were recreating (the original Lusion effect):
 
 https://github.com/user-attachments/assets/8c654b3c-527a-43bb-9c84-3ff559a06319
 
-> _Tip: GitHub only renders inline video players for `user-attachments/assets/…` URLs.
-> To embed the demo recording as an inline player instead of a download
-> link, drag-and-drop the `.mov` into a GitHub issue or PR comment, copy
-> the generated URL, and replace the link above._
+**The result (this repo):** [demo recording](./Screen%20Recording%202026-05-28%20at%203.23.23%20AM.mov)
+
+https://github.com/user-attachments/assets/504770de-65e0-48e7-b015-874d75aa063a
 
 ---
 
