@@ -247,7 +247,7 @@ export function WatercolorReveal({
   wetHalo = 2.2,
   captureMode = false,
 }) {
-  const { gl, size, viewport, pointer } = useThree()
+  const { gl, size, viewport } = useThree()
   const texture = useTexture(imageUrl)
 
   const aspect = size.width / Math.max(1, size.height)
@@ -380,6 +380,92 @@ export function WatercolorReveal({
 
   const brushRef = useRef()
   const lastPointer = useRef(new THREE.Vector2(NaN, NaN))
+  const inputPointer = useRef({
+    x: 0,
+    y: 0,
+    active: false,
+    hasPosition: false,
+    forceStamp: false,
+    pointerId: null,
+  })
+
+  // Input - desktop keeps the original hover-to-reveal behavior; touch/pen
+  // need active contact, so tap-down writes one stamp and drag writes the
+  // same interpolated stamps as mouse movement.
+  useEffect(() => {
+    const el = gl.domElement
+    const input = inputPointer.current
+
+    const updatePosition = (event) => {
+      const rect = el.getBoundingClientRect()
+      input.x = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1
+      input.y = -(((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1)
+      input.hasPosition = true
+    }
+
+    const beginStroke = (event) => {
+      updatePosition(event)
+      input.active = true
+      input.forceStamp = true
+      input.pointerId = event.pointerId
+      if (el.setPointerCapture) {
+        try {
+          el.setPointerCapture(event.pointerId)
+        } catch {
+          // Some mobile browsers can reject capture during system gestures.
+        }
+      }
+      event.preventDefault()
+    }
+
+    const moveStroke = (event) => {
+      if (input.pointerId !== null && event.pointerId !== input.pointerId) {
+        return
+      }
+
+      updatePosition(event)
+      if (event.pointerType === 'mouse') {
+        input.active = true
+      }
+      if (input.pointerId !== null) {
+        event.preventDefault()
+      }
+    }
+
+    const endStroke = (event) => {
+      if (input.pointerId !== null && event.pointerId !== input.pointerId) {
+        return
+      }
+
+      input.active = false
+      input.pointerId = null
+      input.forceStamp = false
+      if (el.hasPointerCapture?.(event.pointerId)) {
+        el.releasePointerCapture(event.pointerId)
+      }
+    }
+
+    const leaveCanvas = (event) => {
+      if (event.pointerType === 'mouse' && input.pointerId === null) {
+        input.active = false
+      }
+    }
+
+    const options = { passive: false }
+    el.addEventListener('pointerdown', beginStroke, options)
+    el.addEventListener('pointermove', moveStroke, options)
+    el.addEventListener('pointerup', endStroke)
+    el.addEventListener('pointercancel', endStroke)
+    el.addEventListener('pointerleave', leaveCanvas)
+
+    return () => {
+      el.removeEventListener('pointerdown', beginStroke, options)
+      el.removeEventListener('pointermove', moveStroke, options)
+      el.removeEventListener('pointerup', endStroke)
+      el.removeEventListener('pointercancel', endStroke)
+      el.removeEventListener('pointerleave', leaveCanvas)
+    }
+  }, [gl])
 
   // Clear both FBOs on mount; render target contents are undefined initially.
   useEffect(() => {
@@ -416,9 +502,10 @@ export function WatercolorReveal({
     const capturePointer = captureMode
       ? sampleCapturePath(state.clock.elapsedTime - captureStart.current)
       : null
-    const shouldStamp = captureMode ? capturePointer !== null : true
-    const px = captureMode ? capturePointer?.x : pointer.x
-    const py = captureMode ? capturePointer?.y : pointer.y
+    const input = inputPointer.current
+    const shouldStamp = captureMode ? capturePointer !== null : input.active
+    const px = captureMode ? capturePointer?.x : input.x
+    const py = captureMode ? capturePointer?.y : input.y
     const last = lastPointer.current
 
     const prevAutoClear = gl.autoClear
@@ -433,10 +520,15 @@ export function WatercolorReveal({
       brushRef.current &&
       shouldStamp &&
       px !== undefined &&
-      py !== undefined
+      py !== undefined &&
+      (captureMode || input.hasPosition)
     ) {
-      if (Number.isNaN(last.x)) {
+      if (Number.isNaN(last.x) || input.forceStamp) {
+        brushRef.current.position.x = px
+        brushRef.current.position.y = py
+        gl.render(brushScene, brushCamera)
         last.set(px, py)
+        input.forceStamp = false
       } else {
         const dx = px - last.x
         const dy = py - last.y
@@ -454,6 +546,8 @@ export function WatercolorReveal({
         }
         last.set(px, py)
       }
+    } else {
+      last.set(NaN, NaN)
     }
 
     // (2) Soak -> outFbo, baking the edge feather into the persistent mask.
