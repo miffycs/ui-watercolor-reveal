@@ -12,19 +12,24 @@ const IMAGES = [
   { url: img1C, label: '1C Story Intro' },
 ]
 
+const DEFAULT_CONFIG = {
+  brushSize: 0.28,
+  brushOpacity: 0.7,
+  noiseScale: 5.0,
+  displacement: 0.05,
+  edgeSoftness: 0.5,
+  settleSpeed: 0.35,
+  wetHalo: 2.2,
+}
+
 export default function App() {
+  const captureMode =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('capture') === '1'
   const [imageUrl, setImageUrl] = useState(IMAGES[0].url)
   const [resetCounter, setResetCounter] = useState(0)
-  const [config, setConfig] = useState({
-    brushSize: 0.18,
-    brushOpacity: 0.7,
-    noiseScale: 5.0,
-    displacement: 0.05,
-    edgeSoftness: 0.5,
-    settleSpeed: 0.35,
-    wetHalo: 2.2,
-  })
-  const [showControls, setShowControls] = useState(true)
+  const [config, setConfig] = useState(DEFAULT_CONFIG)
+  const [showControls, setShowControls] = useState(!captureMode)
   const fileInputRef = useRef(null)
 
   const handleFile = (e) => {
@@ -38,29 +43,32 @@ export default function App() {
   const setParam = (k, v) => setConfig((c) => ({ ...c, [k]: v }))
 
   return (
-    <div className="app">
+    <div className={`app${captureMode ? ' capture' : ''}`}>
       <Canvas dpr={[1, 2]} gl={{ antialias: false, alpha: false }}>
         <Suspense fallback={null}>
           <WatercolorReveal
             // Re-mount on image change or manual reset so the FBO is wiped.
-            key={`${imageUrl}-${resetCounter}`}
+            key={`${imageUrl}-${resetCounter}-${captureMode}`}
             imageUrl={imageUrl}
+            captureMode={captureMode}
             {...config}
           />
         </Suspense>
       </Canvas>
 
-      <div className="hint">Move your cursor to reveal</div>
+      {!captureMode && <div className="hint">Move your cursor to reveal</div>}
 
-      <button
-        className="toggle"
-        onClick={() => setShowControls((s) => !s)}
-        title="Toggle controls"
-      >
-        {showControls ? 'Hide' : 'Show'} controls
-      </button>
+      {!captureMode && (
+        <button
+          className="toggle"
+          onClick={() => setShowControls((s) => !s)}
+          title="Toggle controls"
+        >
+          {showControls ? 'Hide' : 'Show'} controls
+        </button>
+      )}
 
-      {showControls && (
+      {!captureMode && showControls && (
         <div className="controls">
           <h1>Watercolor Reveal</h1>
           <p className="subtitle">WebGL · React Three Fiber</p>
@@ -79,9 +87,7 @@ export default function App() {
           </div>
 
           <div className="row">
-            <button onClick={() => fileInputRef.current?.click()}>
-              Load image
-            </button>
+            <button onClick={() => fileInputRef.current?.click()}>Load image</button>
             <button onClick={resetMask}>Reset mask</button>
           </div>
           <input

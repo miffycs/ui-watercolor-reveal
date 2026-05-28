@@ -3,7 +3,7 @@ import { useFrame, useThree, createPortal } from '@react-three/fiber'
 import { useTexture, useFBO } from '@react-three/drei'
 import * as THREE from 'three'
 
-// 2D simplex noise — Ashima Arts / Stefan Gustavson, MIT licensed.
+// 2D simplex noise - Ashima Arts / Stefan Gustavson, MIT licensed.
 const noiseGLSL = /* glsl */ `
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -45,10 +45,12 @@ void main() {
 `
 
 // Brush has TWO falloffs at different radii inside the same plane:
-//   A (mask)   — small soft circle (the actual stroke)
-//   R (wetness) — much larger soft halo (where the paint *could* spread to)
-// Each stamp writes to both. RGB blends additively (wetness saturates fast),
-// alpha blends normally (mask builds up with brush opacity).
+//   A (mask)     - small soft circle (the visible color reveal)
+//   R (wetness)  - larger soft halo (where the mask can keep spreading)
+//   G/B          - intentionally unused in this version
+// Each stamp writes to both R and A. RGB blends additively so wetness can
+// accumulate quickly; alpha blends normally so the reveal mask builds up
+// with brush opacity. This keeps the original broad brush feel.
 const brushFragment = /* glsl */ `
 varying vec2 vUv;
 uniform float uOpacity;
@@ -56,9 +58,9 @@ uniform float uMaskRange;
 
 void main() {
   vec2 c = vUv - 0.5;
-  float d = length(c) * 2.0;             // 0 at center → ~sqrt(2) at corners
+  float d = length(c) * 2.0;             // 0 at center -> ~sqrt(2) at corners
 
-  // Mask: confined to the inner uMaskRange of the plane
+  // Mask: confined to the inner uMaskRange of the plane.
   float a = 1.0 - smoothstep(0.0, uMaskRange, d);
   a = pow(a, 1.5);
 
@@ -71,7 +73,7 @@ void main() {
 }
 `
 
-// Decay pass — subtract dt-scaled value from R every frame, leaves A alone.
+// Decay pass - subtract dt-scaled value from R every frame, leaves A alone.
 const decayFragment = /* glsl */ `
 uniform float uDecay;
 void main() {
@@ -79,14 +81,17 @@ void main() {
 }
 `
 
-// Soak pass — the heart of the lingering bleed.
-// For each pixel, look at the 8 ring neighbors. Pull the mask toward the
-// brightest neighbor's mask value, but only as fast as the wetness allows.
-// Also propagate wetness slightly outward so the wet ring expands ahead of
-// the mask, giving the mask something to grow into next frame.
-// Runs every frame, including after the cursor has stopped — that's the
-// "water keeps bleeding for a second or two" effect.
+// Soak pass - the actual "water keeps bleeding" state update.
+// For each pixel, look at the 8 ring neighbors. Wet pixels pull their mask
+// toward the brightest nearby mask value, while wetness itself creeps ahead
+// of the pigment and then decays in the separate decay pass.
+//
+// The only change from the original model is that growth rate is modulated
+// by STATIC paper/fiber noise at the edge. The actual A mask still grows;
+// there is no separate color fog, bloom layer, or animated noise overlay.
 const soakFragment = /* glsl */ `
+${noiseGLSL}
+
 varying vec2 vUv;
 uniform sampler2D tInput;
 uniform vec2 uTexelSize;
@@ -116,28 +121,28 @@ void main() {
   float maxN_wet  = max(max(max(n1.r, n2.r), max(n3.r, n4.r)),
                         max(max(n5.r, n6.r), max(n7.r, n8.r)));
 
-  // Use the brightest local wetness (self or any neighbor) as the rate.
-  // This lets the soak reach pixels that weren't directly stamped, as
-  // long as a wet neighbor is nearby.
   float wetDriver = max(wetness, maxN_wet);
+  float paper = snoise(vUv * 38.0) * 0.5 + 0.5;
+  float fiber = snoise(vUv * vec2(16.0, 72.0) + vec2(11.0, -7.0)) * 0.5 + 0.5;
+  float grain = mix(paper, fiber, 0.35);
 
-  // Grow the mask toward the brightest neighbor. Once mask == neighbor,
-  // mix() is a no-op, so the equilibrium is "every wet pixel has the
-  // mask value of its brightest neighbor".
-  mask = mix(mask, maxN_mask, clamp(wetDriver * uSoakStrength, 0.0, 1.0));
+  // Keep saturated interiors still; let the actual mask edge creep unevenly.
+  float edgeBand = smoothstep(0.02, 0.42, maxN_mask) *
+                   (1.0 - smoothstep(0.62, 0.96, mask));
+  float rate = wetDriver * uSoakStrength * mix(0.55, 1.28, grain);
+  mask = mix(mask, maxN_mask, clamp(rate * edgeBand, 0.0, 1.0));
 
-  // Spread wetness too, so the wet front advances one ring per frame.
-  // uWetSpread < 1 means it dims each hop and eventually falls below
-  // significance, bounding total spread distance.
-  wetness = max(wetness, maxN_wet * uWetSpread);
+  // Wetness still moves ahead of the pigment, but static paper texture
+  // decides which fibers carry it farther.
+  wetness = max(wetness, maxN_wet * mix(0.78, uWetSpread, grain));
 
   gl_FragColor = vec4(wetness, self.g, self.b, mask);
 }
 `
 
-// Composite pass — just samples the (already-soaked) mask with a small
-// noise displacement for fluid edge irregularity. No render-time dilation;
-// the FBO state already has the spread baked into it.
+// Composite pass - sample the soaked A mask, displace that lookup with a
+// static noise field for irregular edges, then mix grayscale and color.
+// Time does not appear here; any motion comes from the persistent FBO state.
 const revealFragment = /* glsl */ `
 ${noiseGLSL}
 
@@ -163,8 +168,8 @@ void main() {
     imgUv.y = (vUv.y - 0.5) * s + 0.5;
   }
 
-  // Static spatial noise — perturbs the sample UV so the edge looks
-  // organic. Time-invariant, so no flowing/smoke effect.
+  // Static spatial noise perturbs the mask lookup, not the final color.
+  // That keeps the edge organic without making the image look like smoke.
   vec2 dispStatic = vec2(
     snoise(vUv * uNoiseScale),
     snoise(vUv * uNoiseScale + vec2(100.0))
@@ -183,6 +188,20 @@ void main() {
 
 const FBO_SIZE = 2048
 
+const CAPTURE_PATH = [
+  { t: 0.25, x: -0.52, y: -0.13 },
+  { t: 0.65, x: -0.38, y: -0.27 },
+  { t: 1.05, x: -0.18, y: -0.22 },
+  { t: 1.45, x: -0.02, y: -0.1 },
+  { t: 1.85, x: -0.18, y: 0.07 },
+  { t: 2.25, x: -0.36, y: 0.16 },
+  { t: 2.65, x: -0.12, y: 0.25 },
+  { t: 3.05, x: 0.06, y: 0.17 },
+  { t: 3.55, x: 0.3, y: 0.24 },
+  { t: 4.2, x: 0.55, y: 0.17 },
+  { t: 4.85, x: 0.36, y: -0.06 },
+]
+
 const fboOptions = {
   minFilter: THREE.LinearFilter,
   magFilter: THREE.LinearFilter,
@@ -192,27 +211,55 @@ const fboOptions = {
   stencilBuffer: false,
 }
 
+function smoothstep(edge0, edge1, x) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
+function sampleCapturePath(time) {
+  if (time < CAPTURE_PATH[0].t || time > CAPTURE_PATH[CAPTURE_PATH.length - 1].t) {
+    return null
+  }
+
+  for (let i = 0; i < CAPTURE_PATH.length - 1; i++) {
+    const a = CAPTURE_PATH[i]
+    const b = CAPTURE_PATH[i + 1]
+    if (time >= a.t && time <= b.t) {
+      const t = smoothstep(0, 1, (time - a.t) / (b.t - a.t))
+      return {
+        x: THREE.MathUtils.lerp(a.x, b.x, t),
+        y: THREE.MathUtils.lerp(a.y, b.y, t),
+      }
+    }
+  }
+
+  return null
+}
+
 export function WatercolorReveal({
   imageUrl,
-  brushSize = 0.18,
+  brushSize = 0.28,
   brushOpacity = 0.7,
   noiseScale = 5.0,
   displacement = 0.05,
   edgeSoftness = 0.5,
   settleSpeed = 0.35,
   wetHalo = 2.2,
+  captureMode = false,
 }) {
   const { gl, size, viewport, pointer } = useThree()
   const texture = useTexture(imageUrl)
 
   const aspect = size.width / Math.max(1, size.height)
 
-  // Ping-pong pair. Each frame, the "in" FBO receives decay + brush
-  // stamps, then the soak pass reads it and writes a slightly-grown
-  // state into "out". They alternate.
+  // Ping-pong pair. Each frame, the "in" FBO receives decay + brush stamps,
+  // then the soak pass reads it and writes the next mask state into "out".
+  // They alternate because WebGL cannot safely read from and write to the
+  // same texture in one pass.
   const fboA = useFBO(FBO_SIZE, FBO_SIZE, fboOptions)
   const fboB = useFBO(FBO_SIZE, FBO_SIZE, fboOptions)
   const tick = useRef(0)
+  const captureStart = useRef(null)
 
   const brushScene = useMemo(() => new THREE.Scene(), [])
   const decayScene = useMemo(() => new THREE.Scene(), [])
@@ -223,9 +270,9 @@ export function WatercolorReveal({
     return c
   }, [])
 
-  // Brush — separate blend equations per channel:
-  //   RGB:   additive       → wetness saturates after a couple stamps
-  //   Alpha: normal         → mask asymptotes per brush opacity
+  // Brush - separate blend equations per channel:
+  //   RGB:   additive       -> wetness saturates after a couple stamps
+  //   Alpha: normal alpha   -> mask asymptotes per brush opacity
   const brushMaterial = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -254,7 +301,7 @@ export function WatercolorReveal({
     brushMaterial.uniforms.uMaskRange.value = 1 / wetHalo
   }, [brushOpacity, wetHalo, brushMaterial])
 
-  // Decay — reverse-subtract on R only, alpha untouched.
+  // Decay - reverse-subtract on R only, alpha untouched.
   const decayMaterial = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -277,7 +324,7 @@ export function WatercolorReveal({
     [],
   )
 
-  // Soak — full-RGBA replace (NoBlending). Reads tInput, writes a grown
+  // Soak - full-RGBA replace (NoBlending). Reads tInput, writes a grown
   // mask + propagated wetness.
   const soakMaterial = useMemo(
     () =>
@@ -288,8 +335,8 @@ export function WatercolorReveal({
           tInput: { value: null },
           uTexelSize: { value: new THREE.Vector2(1 / FBO_SIZE, 1 / FBO_SIZE) },
           uSoakRadius: { value: 3.0 },
-          uSoakStrength: { value: 0.4 },
-          uWetSpread: { value: 0.86 },
+          uSoakStrength: { value: 0.48 },
+          uWetSpread: { value: 0.88 },
         },
         transparent: false,
         depthTest: false,
@@ -334,7 +381,7 @@ export function WatercolorReveal({
   const brushRef = useRef()
   const lastPointer = useRef(new THREE.Vector2(NaN, NaN))
 
-  // Clear both FBOs on mount — their initial contents are undefined.
+  // Clear both FBOs on mount; render target contents are undefined initially.
   useEffect(() => {
     const prevColor = new THREE.Color()
     gl.getClearColor(prevColor)
@@ -351,7 +398,7 @@ export function WatercolorReveal({
     gl.setClearColor(prevColor, prevAlpha)
   }, [gl, fboA, fboB])
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     revealMaterial.uniforms.uNoiseScale.value = noiseScale
     revealMaterial.uniforms.uDisplacement.value = displacement
     revealMaterial.uniforms.uEdgeSoftness.value = edgeSoftness
@@ -362,19 +409,32 @@ export function WatercolorReveal({
     const inFbo = isEven ? fboA : fboB
     const outFbo = isEven ? fboB : fboA
 
-    const px = pointer.x
-    const py = pointer.y
+    if (captureStart.current === null) {
+      captureStart.current = state.clock.elapsedTime
+    }
+
+    const capturePointer = captureMode
+      ? sampleCapturePath(state.clock.elapsedTime - captureStart.current)
+      : null
+    const shouldStamp = captureMode ? capturePointer !== null : true
+    const px = captureMode ? capturePointer?.x : pointer.x
+    const py = captureMode ? capturePointer?.y : pointer.y
     const last = lastPointer.current
 
     const prevAutoClear = gl.autoClear
     const prevTarget = gl.getRenderTarget()
     gl.autoClear = false
 
-    // (1) Decay + brush stamps → inFbo (in place)
+    // (1) Decay + brush stamps -> inFbo, preserving previous accumulated state.
     gl.setRenderTarget(inFbo)
     gl.render(decayScene, brushCamera)
 
-    if (brushRef.current) {
+    if (
+      brushRef.current &&
+      shouldStamp &&
+      px !== undefined &&
+      py !== undefined
+    ) {
       if (Number.isNaN(last.x)) {
         last.set(px, py)
       } else {
@@ -396,7 +456,7 @@ export function WatercolorReveal({
       }
     }
 
-    // (2) Soak → outFbo (full replace via NoBlending)
+    // (2) Soak -> outFbo, baking the edge feather into the persistent mask.
     soakMaterial.uniforms.tInput.value = inFbo.texture
     gl.setRenderTarget(outFbo)
     gl.render(soakScene, brushCamera)
@@ -411,8 +471,7 @@ export function WatercolorReveal({
   })
 
   // Brush plane is wetHalo times bigger than the visible mask diameter,
-  // so the brush fragment shader has room to write a wet halo around the
-  // mask. uMaskRange in the shader trims the mask back to "brush diameter".
+  // so the fragment shader can write wetness outside the revealed color.
   const brushScale = [
     (brushSize * wetHalo) / aspect,
     brushSize * wetHalo,

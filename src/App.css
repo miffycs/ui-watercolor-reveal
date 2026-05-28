@@ -7,6 +7,10 @@
   cursor: crosshair;
 }
 
+.app.capture {
+  cursor: none;
+}
+
 .hint {
   position: absolute;
   bottom: 28px;
