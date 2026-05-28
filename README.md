@@ -11,9 +11,9 @@ exactly like watercolor settling into paper.
 
 https://github.com/user-attachments/assets/8c654b3c-527a-43bb-9c84-3ff559a06319
 
-**The result (this repo):** [demo recording](./Screen%20Recording%202026-05-28%20at%203.23.23%20AM.mov)
+**The result (this repo):** [demo recording](./Screen%20Recording%202026-05-28%20at%202.44.19%20PM.mov)
 
-https://github.com/user-attachments/assets/504770de-65e0-48e7-b015-874d75aa063a
+https://github.com/user-attachments/assets/d1a441c1-7521-44ba-bbb4-66f55e29406f
 
 ---
 
